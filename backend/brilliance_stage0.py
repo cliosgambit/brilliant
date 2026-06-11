@@ -98,6 +98,201 @@ def see(board, move):
     return result
 
 
+INDIRECT_SACRIFICE_MIN_VALUE = 300
+OPP_PROFITABLE_SEE_THRESHOLD = 50
+
+
+def _remaining_defender_value(board, square, color):
+    total = 0
+    for def_sq in board.attackers(color, square):
+        p = board.piece_at(def_sq)
+        if p and p.color == color:
+            total += PIECE_VALUES.get(p.piece_type, 0)
+    return total
+
+
+def _is_insufficiently_defended(board, square, color):
+    opp = not color
+    attackers = board.attackers(opp, square)
+    if not attackers:
+        return False
+    defenders = board.attackers(color, square)
+    if len(defenders) == 0:
+        return True
+    return len(defenders) < len(attackers)
+
+
+def _pieces_defended_by_square(board, defender_sq, color):
+    """Friendly non-king pieces where defender_sq is one of their defenders."""
+    defended = []
+    for sq in chess.SQUARES:
+        if sq == defender_sq:
+            continue
+        piece = board.piece_at(sq)
+        if not piece or piece.color != color or piece.piece_type == chess.KING:
+            continue
+        if defender_sq in board.attackers(color, sq):
+            defended.append(sq)
+    return defended
+
+
+def _indirect_sacrifice_empty():
+    return {
+        "indirect_sacrifice_candidate": False,
+        "exposed_piece_square": None,
+        "exposed_piece_type": None,
+        "exposed_piece_value": 0,
+        "defender_removed_by_move": False,
+        "sacrifice_risk": 0,
+        "remaining_defender_value": 0,
+        "opponent_profitable_capture_exists": False,
+        "safe_escapes_before": 0,
+        "safe_escapes_after": 0,
+    }
+
+
+def _evaluate_indirect_exposure(
+    board_after,
+    sq,
+    color,
+    *,
+    defender_removed,
+    safe_escapes_before=None,
+    safe_escapes_after=None,
+):
+    """Build exposure record if square qualifies as indirectly sacrificed."""
+    piece = board_after.piece_at(sq)
+    if not piece or piece.color != color:
+        return None
+
+    piece_value = PIECE_VALUES.get(piece.piece_type, 0)
+    if piece_value < INDIRECT_SACRIFICE_MIN_VALUE:
+        return None
+
+    opp = not color
+    if not board_after.attackers(opp, sq):
+        return None
+
+    opp_see = opponent_capture_see(board_after, sq, color)
+    opponent_profitable = opp_see > OPP_PROFITABLE_SEE_THRESHOLD
+    insufficient = _is_insufficiently_defended(board_after, sq, color)
+    if not opponent_profitable and not insufficient:
+        return None
+
+    remaining_def_val = _remaining_defender_value(board_after, sq, color)
+    sacrifice_risk = piece_value - remaining_def_val
+
+    exposure = {
+        "exposed_piece_square": chess.square_name(sq),
+        "exposed_piece_type": PIECE_NAMES.get(piece.piece_type),
+        "exposed_piece_value": piece_value,
+        "defender_removed_by_move": defender_removed,
+        "sacrifice_risk": sacrifice_risk,
+        "remaining_defender_value": remaining_def_val,
+        "opponent_profitable_capture_exists": opponent_profitable,
+        "opp_see_after": opp_see,
+        "safe_escapes_before": safe_escapes_before if safe_escapes_before is not None else 0,
+        "safe_escapes_after": safe_escapes_after if safe_escapes_after is not None else 0,
+    }
+
+    if opponent_profitable and piece_value >= INDIRECT_SACRIFICE_MIN_VALUE:
+        return exposure
+    return None
+
+
+def detect_indirect_sacrifice(board, move, color):
+    """
+    Detect sacrifices where the moving piece stays safe but another valuable
+    friendly piece becomes profitably capturable.
+
+    Two paths:
+    1. Remove-defender — mover was a direct defender and stops defending.
+    2. Tactical exposure — mover cuts safe escapes / turns a recoverable
+       piece into a lost one (e.g. Qh4 leaving Bf5 with no safe flight).
+    """
+    empty = _indirect_sacrifice_empty()
+
+    from_sq = move.from_square
+    to_sq = move.to_square
+    moving_piece = board.piece_at(from_sq)
+    if moving_piece is None or moving_piece.color != color:
+        return empty
+
+    board_after = board.copy()
+    board_after.push(move)
+    opp = not color
+
+    candidates = []
+
+    # Path 1: direct defender removed
+    for sq in _pieces_defended_by_square(board, from_sq, color):
+        if to_sq in board_after.attackers(color, sq):
+            continue
+        exposure = _evaluate_indirect_exposure(
+            board_after,
+            sq,
+            color,
+            defender_removed=True,
+        )
+        if exposure:
+            candidates.append(exposure)
+
+    # Path 2: tactical deterioration of a piece that was not already lost
+    for sq in chess.SQUARES:
+        if sq == from_sq:
+            continue
+        piece = board.piece_at(sq)
+        if not piece or piece.color != color or piece.piece_type == chess.KING:
+            continue
+
+        vuln_before = analyze_piece_vulnerability(board, sq, color)
+        if vuln_before["already_lost_before_move"]:
+            continue
+
+        piece_after = board_after.piece_at(sq)
+        if not piece_after or piece_after.color != color:
+            continue
+
+        vuln_after = analyze_piece_vulnerability(board_after, sq, color)
+        escapes_before = vuln_before["safe_escape_squares"]
+        escapes_after = vuln_after["safe_escape_squares"]
+
+        deteriorated = (
+            vuln_after["already_lost_before_move"]
+            or (escapes_before > 0 and escapes_after == 0)
+            or (
+                escapes_after < escapes_before
+                and vuln_after["already_lost_before_move"]
+            )
+        )
+        if not deteriorated:
+            continue
+
+        # Skip if path 1 already captured this square
+        if any(c["exposed_piece_square"] == chess.square_name(sq) for c in candidates):
+            continue
+
+        exposure = _evaluate_indirect_exposure(
+            board_after,
+            sq,
+            color,
+            defender_removed=False,
+            safe_escapes_before=escapes_before,
+            safe_escapes_after=escapes_after,
+        )
+        if exposure:
+            candidates.append(exposure)
+
+    if not candidates:
+        return empty
+
+    best = max(candidates, key=lambda c: c["sacrifice_risk"])
+    return {
+        "indirect_sacrifice_candidate": True,
+        **best,
+    }
+
+
 def is_sacrifice_candidate(board, move, color):
     to_sq = move.to_square
     from_sq = move.from_square
@@ -127,9 +322,11 @@ def is_sacrifice_candidate(board, move, color):
                     best_opp_cap = chess.Move(atk_sq, to_sq)
         if best_opp_cap and board_after.is_legal(best_opp_cap):
             opp_see = see(board_after, best_opp_cap)
-            positional_risk = opp_see > 50
+            positional_risk = opp_see > OPP_PROFITABLE_SEE_THRESHOLD
 
-    is_sac = (see_val < -100) or positional_risk
+    indirect = detect_indirect_sacrifice(board, move, color)
+    negative_see_sacrifice = see_val < -100
+    is_sac = negative_see_sacrifice or positional_risk or indirect["indirect_sacrifice_candidate"]
 
     return {
         "is_capture": is_capture,
@@ -141,6 +338,17 @@ def is_sacrifice_candidate(board, move, color):
         "dest_attackers": dest_attackers,
         "dest_defenders": dest_defenders,
         "positional_risk": positional_risk,
+        "negative_see_sacrifice": negative_see_sacrifice,
+        "indirect_sacrifice_candidate": indirect["indirect_sacrifice_candidate"],
+        "exposed_piece_square": indirect["exposed_piece_square"],
+        "exposed_piece_type": indirect["exposed_piece_type"],
+        "exposed_piece_value": indirect["exposed_piece_value"],
+        "defender_removed_by_move": indirect["defender_removed_by_move"],
+        "sacrifice_risk": indirect["sacrifice_risk"],
+        "remaining_defender_value": indirect["remaining_defender_value"],
+        "opponent_profitable_capture_exists": indirect["opponent_profitable_capture_exists"],
+        "safe_escapes_before": indirect.get("safe_escapes_before", 0),
+        "safe_escapes_after": indirect.get("safe_escapes_after", 0),
     }
 
 

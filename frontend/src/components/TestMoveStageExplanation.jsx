@@ -57,6 +57,7 @@ function buildStage0Rows(s0) {
   const seeValue = s0.see_value ?? see.see_value ?? 0;
   const isCapture = Boolean(s0.is_capture ?? see.is_capture);
   const positionalRisk = Boolean(see.positional_risk);
+  const indirectSac = Boolean(see.indirect_sacrifice_candidate);
 
   const rows = [
     {
@@ -71,6 +72,14 @@ function buildStage0Rows(s0) {
       got: positionalRisk ? 'true' : 'false',
       need: 'true',
       pass: positionalRisk,
+    },
+    {
+      label: 'Indirect sac',
+      got: indirectSac
+        ? `${see.exposed_piece_type ?? '?'}@${see.exposed_piece_square ?? '?'}${see.safe_escapes_before != null && see.safe_escapes_after != null && see.safe_escapes_before > see.safe_escapes_after ? ` (esc ${see.safe_escapes_before}→${see.safe_escapes_after})` : ''}`
+        : 'false',
+      need: 'profitable exposure',
+      pass: indirectSac,
     },
     {
       label: 'Sacrifice cand.',

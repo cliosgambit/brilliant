@@ -88,6 +88,13 @@ function parseFeatureRow(row) {
     moving_piece_type: row.moving_piece_type,
     dest_attackers: row.dest_attackers,
     dest_defenders: row.dest_defenders,
+    indirect_sacrifice_candidate: Boolean(
+      features?.see?.indirect_sacrifice_candidate
+    ),
+    exposed_piece_square: features?.see?.exposed_piece_square ?? null,
+    exposed_piece_type: features?.see?.exposed_piece_type ?? null,
+    exposed_piece_value: features?.see?.exposed_piece_value ?? 0,
+    sacrifice_risk: features?.see?.sacrifice_risk ?? 0,
     proceed_to_stage1: Boolean(row.proceed_to_stage1),
     proceed_to_engine: Boolean(features?.proceed_to_engine),
     engine_candidate_path: features?.engine_candidate_path ?? null,

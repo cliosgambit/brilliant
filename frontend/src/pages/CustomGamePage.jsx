@@ -4,6 +4,13 @@ function stage0Summary(move) {
   if (!move) return '—';
   const parts = [`SEE ${move.see_value ?? 0}`];
   if (move.is_sacrifice_candidate) parts.push('Sac');
+  const indirect = move.indirect_sacrifice_candidate
+    ?? move.features?.see?.indirect_sacrifice_candidate;
+  if (indirect) {
+    const sq = move.exposed_piece_square ?? move.features?.see?.exposed_piece_square;
+    const pt = move.exposed_piece_type ?? move.features?.see?.exposed_piece_type;
+    parts.push(sq && pt ? `IndSac ${pt}@${sq}` : 'IndSac');
+  }
   if (move.en_prise_before_move) parts.push('Prise');
   if (move.already_lost_before_move) parts.push('Lost');
   parts.push(`TM ${move.multiplexing_score ?? 0}`, `EV ${move.ev_score ?? 0}`);
