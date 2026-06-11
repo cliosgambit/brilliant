@@ -1,0 +1,143 @@
+@import "tailwindcss";
+
+html {
+  height: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100%;
+  min-height: 100dvh;
+}
+
+#root {
+  min-height: 100%;
+  min-height: 100dvh;
+}
+
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.pb-safe {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+}
+
+.touch-manipulation {
+  touch-action: manipulation;
+}
+
+/* Flex growth is controlled per-page via Tailwind (flex-none / lg:flex-1), not here — avoids fighting utilities and layout collapse. */
+.board-and-eval {
+  display: flex;
+  flex-direction: row;
+  gap: 1rem;
+  min-height: 0;
+  width: 100%;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+}
+
+.chessboard-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  flex: none;
+  width: fit-content;
+}
+
+@media (max-width: 1023px) {
+  .chessboard-wrapper {
+    align-self: center;
+  }
+}
+
+.eval-bar-bg {
+  width: 28px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  background: transparent;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 2px solid #374151;
+}
+
+.eval-bar-bg.eval-bar-sized {
+  align-self: center;
+}
+
+.eval-white-fill {
+  background: #ffffff;
+  width: 100%;
+  position: relative;
+  display: flex;
+  align-items: flex-start; /* Align label to the top of the white bar */
+  justify-content: center;
+  transition: height 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.eval-black-fill {
+  background: #000000;
+  width: 100%;
+  transition: height 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.eval-label-white {
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+  width: 100%;
+  z-index: 2;
+  color: #374151;
+  position: absolute;
+}
+
+.eval-label-black {
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+  width: 100%;
+  z-index: 2;
+  color: #ffffff;
+  position: absolute;
+}
+
+.move-pill {
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  color: #475569;
+  border: 1px solid transparent;
+}
+
+.move-pill.active {
+  background-color: #eef2ff;
+  color: #312e81;
+  border-color: #c7d2fe;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #ffffff;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+

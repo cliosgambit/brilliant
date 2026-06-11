@@ -1,0 +1,381 @@
+# Database Schema
+
+Local SQLite database for saved chess analysis sessions and per-move export rows (aligned with the frontend Excel export in `Analyze.jsx`).
+
+## Overview
+
+| Property | Value |
+|---|---|
+| Engine | SQLite (WAL journal mode) |
+| File | `backend/data/chess_analysis.db` |
+| Schema source | `backend/db/schema.sql` |
+| Initialization | `backend/db/database.js` (applies schema + migrations on startup) |
+| Foreign keys | Enabled (`PRAGMA foreign_keys = ON`) |
+
+## Entity relationship
+
+```
+analysis_sessions (1) ──< (N) analysis_move_rows
+
+lichess_pgn_uploads (1) ──< (N) lichess_pgn_games (1) ──< (N) lichess_pgn_moves
+                                              ├──< (N) lichess_pgn_stage0
+                                              ├──< (N) lichess_pgn_stage1
+                                              └──< (N) lichess_pgn_stage2
+```
+
+## Tables
+
+### `analysis_sessions`
+
+Stores a single PGN analysis job and its progress.
+
+| Column | Type | Nullable | Default | Notes |
+|---|---|---|---|---|
+| `id` | INTEGER | NO | AUTOINCREMENT | Primary key |
+| `created_at` | TEXT | NO | `datetime('now')` | ISO timestamp |
+| `updated_at` | TEXT | NO | `datetime('now')` | ISO timestamp |
+| `input_filename` | TEXT | YES | | Original upload filename |
+| `input_source` | TEXT | YES | | Source identifier |
+| `pgn_text` | TEXT | YES | | Full PGN input |
+| `status` | TEXT | NO | `'pending'` | `pending`, `analyzing`, `completed`, or `failed` |
+| `progress_current` | INTEGER | NO | `0` | Moves analyzed so far |
+| `progress_total` | INTEGER | NO | `0` | Total moves to analyze |
+| `error_message` | TEXT | YES | | Set when `status = 'failed'` |
+| `notes` | TEXT | YES | | Free-form notes |
+| `pgn_metadata` | TEXT | YES | | Serialized PGN header/metadata |
+
+### `analysis_move_rows`
+
+One row per ply in a session. Most columns are TEXT fields mirroring the analysis/export pipeline output.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | INTEGER | NO | Primary key |
+| `session_id` | INTEGER | NO | FK → `analysis_sessions.id` |
+| `ply_index` | INTEGER | NO | Zero-based ply index; unique per session |
+| `move_number` | TEXT | YES | |
+| `turn` | TEXT | YES | Side to move |
+| `san_move` | TEXT | YES | Move in SAN |
+| `uci_move` | TEXT | YES | Move in UCI |
+| `clock` | TEXT | YES | Clock/time info from PGN |
+| `played_move_classification` | TEXT | YES | |
+| `played_move_standing` | TEXT | YES | |
+| `played_move_eval` | TEXT | YES | |
+| `eval_before_move` | TEXT | YES | |
+| `move_quality_delta` | TEXT | YES | |
+| `best_line_delta` | TEXT | YES | |
+| `win_pct_white` | TEXT | YES | |
+| `fen_before_move` | TEXT | YES | |
+| `fen_after_move` | TEXT | YES | |
+| `legal_moves_at_move` | TEXT | YES | |
+| `best_move_alternatives` | TEXT | YES | |
+| `captures` | TEXT | YES | |
+| `game_phase` | TEXT | YES | |
+| `board_density` | TEXT | YES | |
+| `white_space_dominance` | TEXT | YES | |
+| `black_space_dominance` | TEXT | YES | |
+| `white_material` | TEXT | YES | |
+| `black_material` | TEXT | YES | |
+| `material_advantage` | TEXT | YES | |
+| `simplification` | TEXT | YES | |
+| `hanging_pieces` | TEXT | YES | |
+| `loose_pieces` | TEXT | YES | |
+| `white_king_attack_intensity` | TEXT | YES | |
+| `white_king_exposure` | TEXT | YES | |
+| `black_king_attack_intensity` | TEXT | YES | |
+| `black_king_exposure` | TEXT | YES | |
+| `white_king_mobility` | TEXT | YES | |
+| `black_king_mobility` | TEXT | YES | |
+| `white_pawn_islands` | TEXT | YES | |
+| `white_doubled_pawns` | TEXT | YES | |
+| `black_pawn_islands` | TEXT | YES | |
+| `black_doubled_pawns` | TEXT | YES | |
+| `white_avg_mobility` | TEXT | YES | |
+| `black_avg_mobility` | TEXT | YES | |
+| `white_position_freedom` | TEXT | YES | |
+| `black_position_freedom` | TEXT | YES | |
+| `white_space_controlled` | TEXT | YES | |
+| `black_space_controlled` | TEXT | YES | |
+| `space_ratio` | TEXT | YES | |
+| `pins` | TEXT | YES | |
+| `forks` | TEXT | YES | |
+| `endgame_proximity` | TEXT | YES | |
+| `white_practical_risk` | TEXT | YES | |
+| `black_practical_risk` | TEXT | YES | |
+| `overall_evaluation` | TEXT | YES | |
+| `winning_plan` | TEXT | YES | |
+| `line_1_eval` … `line_10_eval` | TEXT | YES | Top 10 engine lines (eval) |
+| `line_1_classification` … `line_10_classification` | TEXT | YES | Top 10 engine lines (classification) |
+| `line_1_sequence` … `line_10_sequence` | TEXT | YES | Top 10 engine lines (move sequence) |
+| `stockfish_json` | TEXT | YES | Raw Stockfish output |
+| `pipeline_json` | TEXT | YES | Full pipeline output |
+
+## Indexes
+
+| Name | Table | Columns | Unique |
+|---|---|---|---|
+| `idx_analysis_move_rows_session` | `analysis_move_rows` | `session_id` | No |
+| `idx_analysis_move_rows_session_ply` | `analysis_move_rows` | `session_id`, `ply_index` | Yes |
+
+### `lichess_pgn_uploads`
+
+File upload metadata and import progress for bulk Lichess PGN dumps.
+
+| Column | Type | Notes |
+|---|---|---|
+| `original_filename` | TEXT | User-facing name |
+| `stored_filename` | TEXT | Name on disk under `backend/data/uploads/` |
+| `file_path` | TEXT | Absolute path |
+| `status` | TEXT | `uploaded`, `processing`, `completed`, `failed` |
+| `range_from` / `range_to` | INTEGER | 1-based game range processed |
+| `games_in_file` | INTEGER | Total games counted after upload |
+| `games_saved` / `games_failed` / `moves_saved` | INTEGER | Progress counters |
+
+### `lichess_pgn_games`
+
+Cleaned single-game PGN per row (`chess.js` validated `clean_pgn` + JSON `pgn_metadata` headers).
+
+### `lichess_pgn_moves`
+
+Parsed ply rows: `san_move`, `uci_move`, `fen_before_move`, `fen_after_move`, etc.
+
+### `lichess_pgn_stage0`
+
+Brilliance Engine Stage 0 board-only features (one row per ply). Full feature blob in `features_json`; key columns indexed for filtering.
+
+| Column | Notes |
+|---|---|
+| `game_id`, `move_id`, `ply_index` | Links to game + move row |
+| `see_value` | Static Exchange Evaluation (negative = sacrifice signal) |
+| `is_sacrifice_candidate` | Stage 0 gate → proceed to Stage 1 |
+| `multiplexing_score`, `ev_score`, `harmony_score` | F04–F06 composites |
+| `king_safety_delta` | Opponent king safety change after move |
+| `proceed_to_stage1` | Same as sacrifice candidate gate |
+| `features_json` | Full Stage 0 payload (setup, SEE, hanging, king safety, TM, EV, harmony) |
+
+`lichess_pgn_games` also tracks `stage0_status`, `stage0_run_at`, `stage0_sacrifice_count`, `stage0_error`.
+
+### `lichess_pgn_stage1`
+
+Stage 1 sacrifice classification — **only Stage 0 candidates**, no engine.
+
+| Column | Notes |
+|---|---|
+| `sac_type` | queen_sacrifice, exchange_sacrifice, real_sacrifice, pseudo_sacrifice, positional_piece_placement, tactical_sacrifice |
+| `disqualifiers_json` | trade_not_sacrifice, piece_was_already_hanging |
+| `is_valid_sacrifice` | Passes all disqualifiers |
+| `is_pseudo` | Material recovered via forced recapture |
+| `material_loss_cp` | cap_val − piece_val (negative = loss) |
+| `sacrifice_uncertainty` | Variance across recapture scenarios |
+| `is_forced` / `forced_reason` | only_legal_move, check_few_options |
+| `proceed_to_stage2` | valid sacrifice AND not forced → Stockfish at Stage 2 |
+
+`lichess_pgn_games` also tracks `stage1_status`, `stage1_run_at`, `stage1_candidate_count`, `stage1_valid_count`, `stage1_proceed_stage2_count`, `stage1_error`.
+
+### `lichess_pgn_stage2`
+
+Stage 2 shallow Stockfish — **only Stage 1 `proceed_to_stage2` moves**. Uses `stockfish-windows-x86-64-avx2.exe` via python-chess `SimpleEngine`, depth 12 multipv 5.
+
+| Column | Notes |
+|---|---|
+| `best_move`, `best_score_cp`, `our_score_cp`, `our_rank_in_top5` | Engine comparison — **white POV** (`score.white()`) |
+| `cpl_shallow` | Centipawn loss vs best move |
+| `ep_delta_shallow` | Expected points change (sigmoid of cp) |
+| `is_forced_engine` | ≤2 moves within 150cp of best at d12 |
+| `response_width` | Opponent replies within 120cp at d10 |
+| `proceed_to_stage3` | Passes CPL ≤300, not engine-forced, EP Δ ≥ −0.15 |
+
+**Stage 2 gate (disqualifiers):** `cpl_shallow > 300` · `is_forced_engine` · `ep_delta_shallow < -0.15`
+
+`lichess_pgn_games` also tracks `stage2_status`, `stage2_run_at`, `stage2_analyzed_count`, `stage2_proceed_stage3_count`, `stage2_error`.
+
+### `lichess_pgn_stage3`
+
+Stage 3 deep Stockfish — **only Stage 2 `proceed_to_stage3` moves**. Depth curve d5–25, rank d8/d22, defense d18. All stored cp values use **white POV** (+ = white better).
+
+| Column | Notes |
+|---|---|
+| `deep_eval_cp` | Position after move at d25 (white POV) |
+| `depth_slope`, `depth_gain`, `depth_variance` | Depth curve metrics (computed on mover-relative curve) |
+| `rank_at_depth8`, `rank_at_depth22`, `rank_jump` | Non-obviousness rank shift |
+| `non_obvious_score` | Composite 0–10 brilliance signal |
+| `defense_difficulty`, `good_defenses` | Opponent defense scan at d18 |
+| `is_sound` | Mover eval at d25 ≥ −30cp |
+| `classification_if_unsound` | e.g. `speculative_sacrifice` (soft gate, still → Stage 4) |
+| `depth_evals_json` | Map depth → white POV cp |
+
+`lichess_pgn_games` also tracks `stage3_status`, `stage3_run_at`, `stage3_analyzed_count`, `stage3_sound_count`, `stage3_error`.
+
+### `lichess_pgn_stage4`
+
+Stage 4 human perception — **Stage 3 passers only**. No engine. Combines Stage 0/1/3 features with player Elo from PGN.
+
+| Column | Notes |
+|---|---|
+| `player_rating` | WhiteElo/BlackElo from PGN for mover |
+| `surprise_score`, `info_surprise_bits` | Rating-relative non-obviousness (0–10) |
+| `pb_score`, `pb_category` | Practical brilliance (objective / Tal zone / speculative) |
+| `archetype` | masterstroke, thunderbolt, ignition, quiet_masterstroke, etc. |
+| `brilliance_score` | Weighted final 0–10 |
+| `classification` | BRILLIANT, practical_brilliant, great_sacrifice, good_sacrifice |
+| `is_brilliant` | classification === BRILLIANT |
+
+`lichess_pgn_games` also tracks `stage4_status`, `stage4_run_at`, `stage4_analyzed_count`, `stage4_brilliant_count`, `stage4_error`.
+
+**API**
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/lichess-pgns/games/:gameId/stage0/run` | Stage 0 (no engine) |
+| GET | `/api/lichess-pgns/games/:gameId/stage0` | Stage 0 results |
+| POST | `/api/lichess-pgns/games/:gameId/stage1/run` | Stage 1 (requires Stage 0) |
+| GET | `/api/lichess-pgns/games/:gameId/stage1` | Stage 1 results |
+| POST | `/api/lichess-pgns/games/:gameId/stage2/run` | Stage 2 Stockfish (requires Stage 1) |
+| GET | `/api/lichess-pgns/games/:gameId/stage2` | Stage 2 results |
+| POST | `/api/lichess-pgns/games/:gameId/stage3/run` | Stage 3 deep Stockfish (requires Stage 2 passers) |
+| GET | `/api/lichess-pgns/games/:gameId/stage3` | Stage 3 results |
+| POST | `/api/lichess-pgns/games/:gameId/stage4/run` | Stage 4 human model (requires Stage 3) |
+| GET | `/api/lichess-pgns/games/:gameId/stage4` | Stage 4 results — brilliance score, archetype |
+| POST | `/api/lichess-pgns/games/:gameId/brilliance/run` | Run Stage 0 → 1 → 2 → 3 → 4 (page load) |
+
+**API (uploads)**
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/lichess-pgns/upload` | Multipart `file` → creates upload, counts games |
+| POST | `/api/lichess-pgns/uploads/:id/process` | `{ range_from, range_to }` → clean + save |
+| GET | `/api/lichess-pgns/stats` | Totals |
+| GET | `/api/lichess-pgns/uploads` | Recent uploads |
+| GET | `/api/lichess-pgns/uploads/:id/games` | Paginated clean games |
+
+## Full schema (SQL)
+
+```sql
+-- Local SQLite schema for saved analysis sessions and per-move export rows
+-- (aligned with frontend Excel export in Analyze.jsx)
+
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS analysis_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  input_filename TEXT,
+  input_source TEXT,
+  pgn_text TEXT,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'analyzing', 'completed', 'failed')),
+  progress_current INTEGER NOT NULL DEFAULT 0,
+  progress_total INTEGER NOT NULL DEFAULT 0,
+  error_message TEXT,
+  notes TEXT,
+  pgn_metadata TEXT
+);
+
+CREATE TABLE IF NOT EXISTS analysis_move_rows (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL,
+  ply_index INTEGER NOT NULL,
+  move_number TEXT,
+  turn TEXT,
+  san_move TEXT,
+  uci_move TEXT,
+  clock TEXT,
+  played_move_classification TEXT,
+  played_move_standing TEXT,
+  played_move_eval TEXT,
+  eval_before_move TEXT,
+  move_quality_delta TEXT,
+  best_line_delta TEXT,
+  win_pct_white TEXT,
+  fen_before_move TEXT,
+  fen_after_move TEXT,
+  legal_moves_at_move TEXT,
+  best_move_alternatives TEXT,
+  captures TEXT,
+  game_phase TEXT,
+  board_density TEXT,
+  white_space_dominance TEXT,
+  black_space_dominance TEXT,
+  white_material TEXT,
+  black_material TEXT,
+  material_advantage TEXT,
+  simplification TEXT,
+  hanging_pieces TEXT,
+  loose_pieces TEXT,
+  white_king_attack_intensity TEXT,
+  white_king_exposure TEXT,
+  black_king_attack_intensity TEXT,
+  black_king_exposure TEXT,
+  white_king_mobility TEXT,
+  black_king_mobility TEXT,
+  white_pawn_islands TEXT,
+  white_doubled_pawns TEXT,
+  black_pawn_islands TEXT,
+  black_doubled_pawns TEXT,
+  white_avg_mobility TEXT,
+  black_avg_mobility TEXT,
+  white_position_freedom TEXT,
+  black_position_freedom TEXT,
+  white_space_controlled TEXT,
+  black_space_controlled TEXT,
+  space_ratio TEXT,
+  pins TEXT,
+  forks TEXT,
+  endgame_proximity TEXT,
+  white_practical_risk TEXT,
+  black_practical_risk TEXT,
+  overall_evaluation TEXT,
+  winning_plan TEXT,
+  line_1_eval TEXT,
+  line_1_classification TEXT,
+  line_1_sequence TEXT,
+  line_2_eval TEXT,
+  line_2_classification TEXT,
+  line_2_sequence TEXT,
+  line_3_eval TEXT,
+  line_3_classification TEXT,
+  line_3_sequence TEXT,
+  line_4_eval TEXT,
+  line_4_classification TEXT,
+  line_4_sequence TEXT,
+  line_5_eval TEXT,
+  line_5_classification TEXT,
+  line_5_sequence TEXT,
+  line_6_eval TEXT,
+  line_6_classification TEXT,
+  line_6_sequence TEXT,
+  line_7_eval TEXT,
+  line_7_classification TEXT,
+  line_7_sequence TEXT,
+  line_8_eval TEXT,
+  line_8_classification TEXT,
+  line_8_sequence TEXT,
+  line_9_eval TEXT,
+  line_9_classification TEXT,
+  line_9_sequence TEXT,
+  line_10_eval TEXT,
+  line_10_classification TEXT,
+  line_10_sequence TEXT,
+  stockfish_json TEXT,
+  pipeline_json TEXT,
+  FOREIGN KEY (session_id) REFERENCES analysis_sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_analysis_move_rows_session
+  ON analysis_move_rows(session_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_move_rows_session_ply
+  ON analysis_move_rows(session_id, ply_index);
+```
+
+## Migrations
+
+On startup, `database.js` runs lightweight migrations against existing databases:
+
+- **Dropped columns** (table rebuild): `sacrifices`, `tempo`, `generated_commentary`, `ml_inputs_json`, `ml_predictions_json`, `flan_t5_output`
+- **Added columns**: `best_line_delta`, `pipeline_json`
+- **Dropped tables**: `behavioral_stories`, `pgn_import_batches`, `pgn_import_raw_games`
+- **Dropped session columns** (table rebuild): `import_batch_id`, `import_game_index`, `lichess_game_id`
+
+When changing the schema, update `schema.sql` and add a matching migration in `database.js`.

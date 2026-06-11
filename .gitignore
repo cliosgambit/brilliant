@@ -1,0 +1,107 @@
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Build outputs
+dist/
+build/
+out/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Editor / IDE
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+.cursor/
+
+# OS related
+Thumbs.db
+db.lock
+desktop.ini
+ehthumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+.eggs/
+
+# Test / coverage
+coverage/
+.nyc_output/
+htmlcov/
+.tox/
+.nox/
+
+# Caches
+.cache/
+.turbo/
+.parcel-cache/
+*.tsbuildinfo
+
+# Databases (generated runtime data)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Large chess datasets
+*.pgn
+*.pgn.zst
+*.pgn.bz2
+
+# Project specific
+backend/node_modules/
+frontend/node_modules/
+frontend/dist/
+stockfish/*.exe
+stockfish/src/*.o
+stockfish/src/stockfish
+
+# Backups and temporary files
+back_up/
+backup*/
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.rar
+*.xlsx
+*.tmp
+*.bak
+
+# Generated root-level report artifacts
+/*.html
+
+# Misc local notes / scratch
+chess_trae_fixes_validated.md
+chess.html

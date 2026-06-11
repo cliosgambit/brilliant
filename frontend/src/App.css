@@ -1,0 +1,111 @@
+@import "tailwindcss";
+
+:root {
+  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+}
+
+body {
+  background-color: #ffffff;
+  color: #1e293b;
+  margin: 0;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Specific component styles to match reference */
+.workspace-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 20px;
+}
+
+.board-and-eval {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  height: 100%;
+  max-height: calc(100vh - 280px);
+  aspect-ratio: 1.05 / 1;
+}
+
+/* Ensure the chessboard wrapper is square */
+.chessboard-wrapper {
+  flex: 1;
+  aspect-ratio: 1 / 1;
+  background-color: #769656;
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  border: 2px solid #cbd5e1;
+}
+
+/* Evaluation Bar details */
+.eval-bar-bg {
+  width: 32px;
+  background: #262421;
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+  border: 1.5px solid #1e293b;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+
+.eval-bar-fill {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  background: #ffffff;
+  transition: height 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 1;
+}
+
+.eval-label {
+  font-size: 10px;
+  font-weight: 500;
+  text-align: center;
+  width: 100%;
+  z-index: 2;
+  mix-blend-mode: difference;
+  color: #fff;
+}
+
+.side-panel-left, .side-panel-right {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.move-pill {
+  padding: 6px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: center;
+  border: 1px solid transparent;
+}
+
+.move-pill.active {
+  background-color: #eef2ff;
+  color: #312e81;
+  border-color: #c7d2fe;
+}
