@@ -91,6 +91,16 @@ function parseFeatureRow(row) {
     indirect_sacrifice_candidate: Boolean(
       features?.see?.indirect_sacrifice_candidate
     ),
+    hanging_sacrifice: Boolean(features?.see?.hanging_sacrifice),
+    defender_removal_sacrifice: Boolean(features?.see?.defender_removal_sacrifice),
+    newly_exposed_piece: features?.see?.newly_exposed_piece ?? null,
+    newly_exposed_piece_square: features?.see?.newly_exposed_piece_square ?? null,
+    newly_exposed_piece_type: features?.see?.newly_exposed_piece_type ?? null,
+    newly_exposed_piece_value: features?.see?.newly_exposed_piece_value ?? 0,
+    pre_move_see: features?.see?.pre_move_see ?? 0,
+    post_move_see: features?.see?.post_move_see ?? 0,
+    pre_move_defenders: features?.see?.pre_move_defenders ?? 0,
+    post_move_defenders: features?.see?.post_move_defenders ?? 0,
     exposed_piece_square: features?.see?.exposed_piece_square ?? null,
     exposed_piece_type: features?.see?.exposed_piece_type ?? null,
     exposed_piece_value: features?.see?.exposed_piece_value ?? 0,

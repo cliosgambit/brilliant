@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 function stage0Summary(move) {
   if (!move) return '—';
@@ -7,14 +7,26 @@ function stage0Summary(move) {
   const indirect = move.indirect_sacrifice_candidate
     ?? move.features?.see?.indirect_sacrifice_candidate;
   if (indirect) {
-    const sq = move.exposed_piece_square ?? move.features?.see?.exposed_piece_square;
-    const pt = move.exposed_piece_type ?? move.features?.see?.exposed_piece_type;
-    parts.push(sq && pt ? `IndSac ${pt}@${sq}` : 'IndSac');
+    const sq = move.newly_exposed_piece_square
+      ?? move.exposed_piece_square
+      ?? move.features?.see?.newly_exposed_piece_square
+      ?? move.features?.see?.exposed_piece_square;
+    const pt = move.newly_exposed_piece_type
+      ?? move.exposed_piece_type
+      ?? move.features?.see?.newly_exposed_piece_type
+      ?? move.features?.see?.exposed_piece_type;
+    const defRem = move.defender_removal_sacrifice ?? move.features?.see?.defender_removal_sacrifice;
+    parts.push(sq && pt ? `IndSac ${pt}@${sq}${defRem ? ' (def↓)' : ''}` : 'IndSac');
   }
   if (move.en_prise_before_move) parts.push('Prise');
   if (move.already_lost_before_move) parts.push('Lost');
   parts.push(`TM ${move.multiplexing_score ?? 0}`, `EV ${move.ev_score ?? 0}`);
   if (move.proceed_to_stage1) parts.push('→S1');
+  if (move.features?.see?.favorable_trade) {
+    const c = move.features.see.compensation_piece_type;
+    const sq = move.features.see.compensation_piece_square;
+    parts.push(sq && c ? `Trade ${c}@${sq}` : 'Trade');
+  }
   if (move.proceed_to_engine) parts.push(move.engine_candidate_path || 'engine');
   return parts.join(' · ');
 }
@@ -61,8 +73,16 @@ function stage3Summary(move) {
   if (move.rank_jump != null) parts.push(`RankΔ ${move.rank_jump}`);
   if (move.is_rising_curve) parts.push('Rising');
   if (move.proceed_to_stage4) parts.push('→S4');
-  else if (move.classification_if_unsound) parts.push(move.classification_if_unsound);
   else if (move.gate_fail_reason) parts.push(move.gate_fail_reason);
+  return parts.join(' · ');
+}
+
+function stage4Summary(move) {
+  if (!move) return '—';
+  const parts = [`Score ${move.brilliance_score ?? '—'}`];
+  if (move.classification) parts.push(move.classification);
+  if (move.archetype) parts.push(move.archetype.replace(/_/g, ' '));
+  if (move.proceed_to_stage4) parts.push('→S4');
   return parts.join(' · ');
 }
 import { useChessGame } from '../hooks/useChessGame';
@@ -93,7 +113,8 @@ export default function CustomGamePage({
   const [stage1Loading, setStage1Loading] = useState(false);
   const [stage2Loading, setStage2Loading] = useState(false);
   const [stage3Loading, setStage3Loading] = useState(false);
-  const [stage1FilterActive, setStage1FilterActive] = useState(false);
+  const [stage4Loading, setStage4Loading] = useState(false);
+  const [stageFilter, setStageFilter] = useState(null);
 
   const handleEngineEvalChange = useCallback(({ stage2: s2, stage3: s3, stage4: s4, loading }) => {
     if (s2 !== undefined) setStage2(s2);
@@ -141,7 +162,8 @@ export default function CustomGamePage({
       setStage1Loading(false);
       setStage2Loading(false);
       setStage3Loading(false);
-      setStage1FilterActive(false);
+      setStage4Loading(false);
+      setStageFilter(null);
 
       try {
         const res = await fetch(`${API_BASE}/api/lichess-pgns/custom/import`, {
@@ -205,6 +227,18 @@ export default function CustomGamePage({
           const s3 = await runS3.json();
           if (!runS3.ok) throw new Error(s3.error || 'Stage 3 analysis failed');
           setStage3(s3);
+          setStage3Loading(false);
+
+          setStage4Loading(true);
+          const runS4 = await fetch(`${API_BASE}/api/lichess-pgns/games/${data.id}/stage4/run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ force: true }),
+          });
+          const s4 = await runS4.json();
+          if (!runS4.ok) throw new Error(s4.error || 'Stage 4 analysis failed');
+          setStage4(s4);
+          setStage4Loading(false);
         }
 
         return true;
@@ -217,10 +251,16 @@ export default function CustomGamePage({
         setStage1Loading(false);
         setStage2Loading(false);
         setStage3Loading(false);
+        setStage4Loading(false);
       }
     },
     [loadPGN, inputSource, hideBrilliancePanel]
   );
+
+  useEffect(() => {
+    if (!hideBrilliancePanel || stage1Loading || !stage1?.moves?.length) return;
+    setStageFilter((prev) => (prev === null ? 'stage1' : prev));
+  }, [hideBrilliancePanel, stage1Loading, stage1?.moves?.length]);
 
   const stage2Move = useMemo(() => {
     if (!stage2?.moves?.length || navIndex <= 0) return null;
@@ -304,19 +344,37 @@ export default function CustomGamePage({
     return map;
   }, [stage3]);
 
+  const stage4ByPly = useMemo(() => {
+    const map = new Map();
+    for (const m of stage4?.moves || []) {
+      map.set(m.ply_index, m);
+    }
+    return map;
+  }, [stage4]);
+
   const tableMoveRows = useMemo(
     () => moveListLabels.map((label, plyIndex) => ({ label, plyIndex })),
     [moveListLabels]
   );
 
   const visibleTableRows = useMemo(() => {
-    if (!stage1FilterActive) return tableMoveRows;
-    return tableMoveRows.filter(({ plyIndex }) => stage0ByPly.get(plyIndex)?.proceed_to_stage1);
-  }, [tableMoveRows, stage1FilterActive, stage0ByPly]);
+    if (stageFilter === 'stage1') {
+      return tableMoveRows.filter(({ plyIndex }) => stage0ByPly.get(plyIndex)?.proceed_to_stage1);
+    }
+    if (stageFilter === 'stage4') {
+      return tableMoveRows.filter(({ plyIndex }) => stage3ByPly.get(plyIndex)?.proceed_to_stage4);
+    }
+    return tableMoveRows;
+  }, [tableMoveRows, stageFilter, stage0ByPly, stage3ByPly]);
 
   const stage1EligibleCount = useMemo(
     () => tableMoveRows.filter(({ plyIndex }) => stage0ByPly.get(plyIndex)?.proceed_to_stage1).length,
     [tableMoveRows, stage0ByPly]
+  );
+
+  const stage4EligibleCount = useMemo(
+    () => tableMoveRows.filter(({ plyIndex }) => stage3ByPly.get(plyIndex)?.proceed_to_stage4).length,
+    [tableMoveRows, stage3ByPly]
   );
 
   const selectedMoveLabel = navIndex > 0 ? moveListLabels[navIndex - 1] : null;
@@ -324,6 +382,7 @@ export default function CustomGamePage({
   const selectedS1Move = navIndex > 0 ? stage1ByPly.get(navIndex - 1) : null;
   const selectedS2Move = navIndex > 0 ? stage2ByPly.get(navIndex - 1) : null;
   const selectedS3Move = navIndex > 0 ? stage3ByPly.get(navIndex - 1) : null;
+  const selectedS4Move = navIndex > 0 ? stage4ByPly.get(navIndex - 1) : null;
 
   const lastMoveHighlight = useMemo(() => {
     if (!hideBrilliancePanel || navIndex <= 0) return {};
@@ -349,9 +408,11 @@ export default function CustomGamePage({
 
       {importing && (
         <div className="fixed top-14 lg:top-4 right-3 sm:right-6 z-40 rounded-xl border border-slate-200 bg-white/95 backdrop-blur-sm shadow-lg px-4 py-2 text-xs font-bold text-slate-600">
-          {hideBrilliancePanel && stage3Loading
-            ? 'Running Stage 3…'
-            : hideBrilliancePanel && stage2Loading
+          {hideBrilliancePanel && stage4Loading
+            ? 'Running Stage 4…'
+            : hideBrilliancePanel && stage3Loading
+              ? 'Running Stage 3…'
+              : hideBrilliancePanel && stage2Loading
               ? 'Running Stage 2…'
               : hideBrilliancePanel && stage1Loading
                 ? 'Running Stage 1…'
@@ -476,24 +537,46 @@ export default function CustomGamePage({
 
         {hideBrilliancePanel && (
           <div className="w-full pt-2 lg:pt-0">
-            <div className="flex items-center gap-3 mb-2">
+            <div className="flex items-center gap-3 mb-2 flex-wrap">
               <button
                 type="button"
-                onClick={() => setStage1FilterActive((v) => !v)}
+                onClick={() => setStageFilter((v) => (v === 'stage1' ? null : 'stage1'))}
                 disabled={
-                  stage0Loading || stage1Loading || stage2Loading || stage3Loading || !stage0?.moves?.length
+                  stage0Loading || stage1Loading || stage2Loading || stage3Loading || stage4Loading || !stage0?.moves?.length
                 }
                 className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors ${
-                  stage1FilterActive
+                  stageFilter === 'stage1'
                     ? 'bg-indigo-600 text-white shadow-sm'
                     : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
                 } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 Stage 1
               </button>
-              {stage1FilterActive && (
+              <button
+                type="button"
+                onClick={() => setStageFilter((v) => (v === 'stage4' ? null : 'stage4'))}
+                disabled={
+                  stage0Loading || stage1Loading || stage2Loading || stage3Loading || stage4Loading || !stage3?.moves?.length
+                }
+                className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors ${
+                  stageFilter === 'stage4'
+                    ? 'bg-violet-600 text-white shadow-sm'
+                    : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                Stage 4
+              </button>
+              {stageFilter == null && (
+                <span className="text-xs text-slate-400">All moves</span>
+              )}
+              {stageFilter === 'stage1' && (
                 <span className="text-xs text-slate-500">
                   {stage1EligibleCount} move{stage1EligibleCount === 1 ? '' : 's'} eligible
+                </span>
+              )}
+              {stageFilter === 'stage4' && (
+                <span className="text-xs text-slate-500">
+                  {stage4EligibleCount} move{stage4EligibleCount === 1 ? '' : 's'} selected for Stage 4
                 </span>
               )}
             </div>
@@ -518,19 +601,24 @@ export default function CustomGamePage({
                         <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-widest">
                           Stage 3
                         </th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-widest">
+                          Stage 4
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {moveListLabels.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">
+                          <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">
                             Import a PGN to list moves here.
                           </td>
                         </tr>
                       ) : visibleTableRows.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">
-                            No moves eligible for Stage 1.
+                          <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">
+                            {stageFilter === 'stage4'
+                              ? 'No moves selected for Stage 4.'
+                              : 'No moves eligible for Stage 1.'}
                           </td>
                         </tr>
                       ) : (
@@ -540,11 +628,13 @@ export default function CustomGamePage({
                           const s1Move = stage1ByPly.get(plyIndex);
                           const s2Move = stage2ByPly.get(plyIndex);
                           const s3Move = stage3ByPly.get(plyIndex);
+                          const s4Move = stage4ByPly.get(plyIndex);
                           const isStage1Eligible = Boolean(s0Move?.proceed_to_stage1);
                           const isStage2Eligible = Boolean(s1Move?.proceed_to_stage2);
                           const isStage3Eligible = Boolean(
                             s1Move?.proceed_to_stage2 && s2Move?.proceed_to_stage3
                           );
+                          const isStage4Eligible = Boolean(s3Move?.proceed_to_stage4);
                           const isSac = s0Move?.is_sacrifice_candidate;
                           return (
                             <tr
@@ -552,9 +642,11 @@ export default function CustomGamePage({
                               className={`border-b border-slate-100 cursor-pointer transition-colors ${
                                 isActive
                                   ? 'bg-indigo-50 text-indigo-900'
-                                  : isSac
-                                    ? 'bg-amber-50/50'
-                                    : 'hover:bg-slate-50'
+                                  : isStage4Eligible && stageFilter === 'stage4'
+                                    ? 'bg-violet-50/60'
+                                    : isSac
+                                      ? 'bg-amber-50/50'
+                                      : 'hover:bg-slate-50'
                               }`}
                               onClick={() => setNavIndex(plyIndex + 1)}
                             >
@@ -620,12 +712,35 @@ export default function CustomGamePage({
                                     className={
                                       s3Move?.is_sound
                                         ? 'text-emerald-700 font-semibold'
-                                        : s3Move
-                                          ? 'text-amber-700'
-                                          : undefined
+                                        : s3Move?.proceed_to_stage4
+                                          ? 'text-violet-700 font-semibold'
+                                          : s3Move
+                                            ? 'text-amber-700'
+                                            : undefined
                                     }
                                   >
                                     {stage3Summary(s3Move)}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-2 text-xs text-slate-600 font-mono">
+                                {!isStage4Eligible ? (
+                                  <span className="text-slate-300">—</span>
+                                ) : stage4Loading ? (
+                                  <span className="text-slate-400">Running…</span>
+                                ) : (
+                                  <span
+                                    className={
+                                      s4Move?.is_brilliant || s4Move?.classification === 'BRILLIANT'
+                                        ? 'text-amber-700 font-semibold'
+                                        : s4Move?.classification === 'practical_brilliant'
+                                          ? 'text-indigo-700 font-semibold'
+                                          : s4Move
+                                            ? 'text-violet-700'
+                                            : undefined
+                                    }
+                                  >
+                                    {stage4Summary(s4Move)}
                                   </span>
                                 )}
                               </td>
@@ -650,6 +765,8 @@ export default function CustomGamePage({
                   stage1Loading={stage1Loading}
                   stage2Loading={stage2Loading}
                   stage3Loading={stage3Loading}
+                  stage4Loading={stage4Loading}
+                  s4Move={selectedS4Move}
                 />
               </div>
             </div>

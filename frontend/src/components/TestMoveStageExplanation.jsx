@@ -58,6 +58,17 @@ function buildStage0Rows(s0) {
   const isCapture = Boolean(s0.is_capture ?? see.is_capture);
   const positionalRisk = Boolean(see.positional_risk);
   const indirectSac = Boolean(see.indirect_sacrifice_candidate);
+  const hangingSac = Boolean(see.hanging_sacrifice);
+  const defRem = Boolean(see.defender_removal_sacrifice);
+  const newlyExposed = Boolean(
+    see.newly_exposed_sacrifice
+    ?? (see.pre_move_see <= 0 && see.post_move_see > 0 && see.newly_exposed_piece_value >= 300)
+  );
+  const sacAsset = see.newly_exposed_piece_type ?? see.exposed_piece_type;
+  const sacSquare = see.newly_exposed_piece_square ?? see.exposed_piece_square;
+  const favorableTrade = Boolean(see.favorable_trade);
+  const compType = see.compensation_piece_type;
+  const compSquare = see.compensation_piece_square;
 
   const rows = [
     {
@@ -74,12 +85,59 @@ function buildStage0Rows(s0) {
       pass: positionalRisk,
     },
     {
-      label: 'Indirect sac',
-      got: indirectSac
-        ? `${see.exposed_piece_type ?? '?'}@${see.exposed_piece_square ?? '?'}${see.safe_escapes_before != null && see.safe_escapes_after != null && see.safe_escapes_before > see.safe_escapes_after ? ` (esc ${see.safe_escapes_before}→${see.safe_escapes_after})` : ''}`
+      label: 'Newly exposed',
+      got: newlyExposed
+        ? `${sacAsset ?? '?'}@${sacSquare ?? '?'}`
         : 'false',
+      need: 'SEE flip + ≥300',
+      pass: newlyExposed,
+    },
+    {
+      label: 'Defender removed',
+      got: defRem ? `${sacAsset ?? '?'}@${sacSquare ?? '?'}` : 'false',
+      need: 'true',
+      pass: defRem,
+    },
+    {
+      label: 'Hanging sac',
+      got: hangingSac
+        ? `${sacAsset ?? '?'}@${sacSquare ?? '?'} (SEE ${see.pre_move_see ?? 0}→${see.post_move_see ?? 0}, def ${see.pre_move_defenders ?? 0}→${see.post_move_defenders ?? 0})`
+        : 'false',
+      need: 'profitable asset',
+      pass: hangingSac,
+    },
+    {
+      label: 'Indirect sac',
+      got: indirectSac ? `${sacAsset ?? '?'}@${sacSquare ?? '?'}` : 'false',
       need: 'profitable exposure',
       pass: indirectSac,
+    },
+    {
+      label: 'Became lost',
+      got: see.became_lost ? 'true' : 'false',
+      need: 'risk↑ or def↓',
+      pass: see.became_lost,
+    },
+    {
+      label: 'Risk worsened',
+      got: see.risk_worsened ? 'true' : 'false',
+      need: 'SEE↑',
+      pass: see.risk_worsened,
+    },
+    {
+      label: 'Defense weak',
+      got: see.defense_weakened ? 'true' : 'false',
+      need: 'def↓',
+      pass: see.defense_weakened,
+    },
+    {
+      label: 'Favorable trade',
+      got: favorableTrade
+        ? `${compType ?? '?'}@${compSquare ?? '?'} ≥ ${sacAsset ?? '?'}`
+        : 'false',
+      need: 'blocks sac',
+      pass: favorableTrade ? null : false,
+      na: favorableTrade,
     },
     {
       label: 'Sacrifice cand.',
@@ -408,6 +466,57 @@ function buildStage3Rows(s2, s1, s3) {
   ];
 }
 
+function buildStage4Rows(s3Move, s4Move) {
+  if (!s3Move?.proceed_to_stage4) return [];
+  if (!s4Move) return [];
+
+  const rows = [
+    {
+      label: 'Score',
+      got: s4Move.brilliance_score ?? '—',
+      need: '≥ 6.5 brilliant',
+      pass: s4Move.is_brilliant ?? (s4Move.brilliance_score != null && s4Move.brilliance_score >= 6.5),
+    },
+    {
+      label: 'Class',
+      got: s4Move.classification ?? '—',
+      need: '—',
+      pass: null,
+      na: true,
+    },
+    {
+      label: 'Archetype',
+      got: (s4Move.archetype || 'masterstroke').replace(/_/g, ' '),
+      need: '—',
+      pass: null,
+      na: true,
+    },
+    {
+      label: 'Surprise',
+      got: s4Move.surprise_score ?? '—',
+      need: '—',
+      pass: null,
+      na: true,
+    },
+    {
+      label: 'PB score',
+      got: s4Move.pb_score ?? '—',
+      need: '—',
+      pass: null,
+      na: true,
+    },
+    {
+      label: 'Tal zone',
+      got: s4Move.is_tal_zone ? 'true' : 'false',
+      need: '—',
+      pass: null,
+      na: true,
+    },
+  ];
+
+  return rows;
+}
+
 function StageSection({ title, gatePass, gateLabel, children }) {
   return (
     <section className="border border-slate-200 rounded-lg overflow-hidden">
@@ -435,10 +544,12 @@ export default function TestMoveStageExplanation({
   s1Move,
   s2Move,
   s3Move,
+  s4Move,
   stage0Loading,
   stage1Loading,
   stage2Loading,
   stage3Loading,
+  stage4Loading,
 }) {
   const plyIndex = navIndex > 0 ? navIndex - 1 : null;
 
@@ -448,6 +559,10 @@ export default function TestMoveStageExplanation({
   const stage3Rows = useMemo(
     () => buildStage3Rows(s2Move, s1Move, s3Move),
     [s2Move, s1Move, s3Move]
+  );
+  const stage4Rows = useMemo(
+    () => buildStage4Rows(s3Move, s4Move),
+    [s3Move, s4Move]
   );
 
   if (plyIndex == null || !moveLabel) {
@@ -572,8 +687,34 @@ export default function TestMoveStageExplanation({
           )}
         </StageSection>
 
-        <StageSection title="Stage 4" gatePass={false} gateLabel="Not run">
-          <p className="text-[10px] text-slate-400 px-1">Classification — not run on /test</p>
+        <StageSection
+          title="Stage 4"
+          gatePass={
+            stage4Loading || !s3Move?.proceed_to_stage4
+              ? null
+              : Boolean(s4Move?.is_brilliant ?? (s4Move?.brilliance_score != null && s4Move.brilliance_score >= 6.5))
+          }
+          gateLabel={
+            stage4Loading
+              ? '…'
+              : !s3Move?.proceed_to_stage4
+                ? 'Skip'
+                : s4Move?.classification === 'BRILLIANT'
+                  ? 'BRILLIANT'
+                  : s4Move?.classification
+                    ? s4Move.classification
+                    : 'Done'
+          }
+        >
+          {stage4Loading ? (
+            <p className="text-[10px] text-slate-400 px-1">Running…</p>
+          ) : !s3Move?.proceed_to_stage4 ? (
+            <p className="text-[10px] text-slate-400 px-1">Did not pass Stage 3</p>
+          ) : stage4Rows.length ? (
+            <ScoreTable rows={stage4Rows} />
+          ) : (
+            <p className="text-[10px] text-slate-400 px-1">No Stage 4 data</p>
+          )}
         </StageSection>
       </div>
     </div>
